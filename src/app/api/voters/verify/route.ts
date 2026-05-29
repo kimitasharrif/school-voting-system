@@ -4,6 +4,42 @@ import { fail, ok } from "@/lib/api-response";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import { verifyVoterSchema } from "@/lib/validations";
 
+async function findVoterByIdentifier(
+  supabase: ReturnType<typeof createSupabaseAdmin>,
+  electionId: string,
+  identifier: string
+) {
+  const cleaned = identifier.trim().toUpperCase();
+
+  const { data: voterByCode, error: codeError } = await supabase
+    .from("voters")
+    .select("id, full_name, admission_number, class_name, is_active")
+    .eq("election_id", electionId)
+    .eq("voter_code", cleaned)
+    .maybeSingle();
+
+  if (codeError) {
+    throw codeError;
+  }
+
+  if (voterByCode) {
+    return voterByCode;
+  }
+
+  const { data: voterByAdmission, error: admissionError } = await supabase
+    .from("voters")
+    .select("id, full_name, admission_number, class_name, is_active")
+    .eq("election_id", electionId)
+    .eq("admission_number", cleaned)
+    .maybeSingle();
+
+  if (admissionError) {
+    throw admissionError;
+  }
+
+  return voterByAdmission;
+}
+
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const parsed = verifyVoterSchema.safeParse(body);
@@ -12,7 +48,14 @@ export async function POST(request: NextRequest) {
     return fail("Invalid voter verification data.", 422, parsed.error.flatten());
   }
 
-  const { electionId, voterCode } = parsed.data;
+  const { electionId } = parsed.data;
+
+  const identifier =
+    parsed.data.identifier ??
+    parsed.data.voterCode ??
+    parsed.data.admissionNumber ??
+    "";
+
   const supabase = createSupabaseAdmin();
 
   const { data: election, error: electionError } = await supabase
@@ -39,15 +82,20 @@ export async function POST(request: NextRequest) {
     return fail("This election has already ended.", 403);
   }
 
-  const { data: voter, error: voterError } = await supabase
-    .from("voters")
-    .select("id, full_name, admission_number, class_name, is_active")
-    .eq("election_id", electionId)
-    .eq("voter_code", voterCode.trim())
-    .single();
+  let voter;
 
-  if (voterError || !voter) {
-    return fail("Invalid voter code.", 401);
+  try {
+    voter = await findVoterByIdentifier(supabase, electionId, identifier);
+  } catch (error) {
+    return fail(
+      "Failed to verify voter.",
+      500,
+      error instanceof Error ? error.message : "Unknown error"
+    );
+  }
+
+  if (!voter) {
+    return fail("Invalid admission number or voter code.", 401);
   }
 
   if (!voter.is_active) {
@@ -96,8 +144,9 @@ export async function POST(request: NextRequest) {
       ...position,
       alreadyVoted: votedPositionIds.has(position.id),
       candidates:
-        candidates?.filter((candidate) => candidate.position_id === position.id) ??
-        [],
+        candidates?.filter(
+          (candidate) => candidate.position_id === position.id
+        ) ?? [],
     })) ?? [];
 
   return ok({

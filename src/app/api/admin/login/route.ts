@@ -10,6 +10,15 @@ const loginSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+
+      console.log("[Admin Login Debug]", {
+      hasSupabaseUrl: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      hasAnonKey: Boolean(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+      hasServiceRoleKey: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+      hasAdminSessionSecret: Boolean(process.env.ADMIN_SESSION_SECRET),
+      hasAdminSetupSecret: Boolean(process.env.ADMIN_SETUP_SECRET),
+    });
   const body = await request.json();
   const parsed = loginSchema.safeParse(body);
 
